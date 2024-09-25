@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/dgrijalva/jwt-go"
@@ -11,27 +12,32 @@ import (
 )
 
 // Secret Key for JWT signing
-var jwtKey = []byte("my_secret_key")
+var jwtKey = []byte(os.Getenv("JWT_SECRET_KEY"))
 
+// Claims struct for JWT payload
 type Claims struct {
-	Email string `json: "email"`
+	Email string `json:"email"`
 	jwt.StandardClaims
 }
 
 // LoginHandler handles user login
-
 func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	var creds User
-	err := json.NewDecoder(r.Body).Decode(&creds)
-	if err != nil {
-		http.Error(w, "Invalid request", http.StatusBadRequest)
+	if err := json.NewDecoder(r.Body).Decode(&creds); err != nil {
+		http.Error(w, "Invalid request payload", http.StatusBadRequest)
 		return
 	}
 
 	// Retrieve the stored User
 	storedUser, exists := users[creds.Email]
-	if !exists || bcrypt.CompareHashAndPassword([]byte(storedUser.Password), []byte(creds.Password)) != nil {
-		http.Error(w, "Invalid Email or Password", http.StatusUnauthorized)
+	if !exists {
+		http.Error(w, "Invalid email or password", http.StatusUnauthorized)
+		return
+	}
+
+	// Compare the stored hashed password with the provided password
+	if err := bcrypt.CompareHashAndPassword([]byte(storedUser.Password), []byte(creds.Password)); err != nil {
+		http.Error(w, "Invalid email or password", http.StatusUnauthorized)
 		return
 	}
 
@@ -51,10 +57,12 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("This Email is successfully logged in: %s\n", creds.Email)
+	log.Printf("User successfully logged in: %s\n", creds.Email)
 
-	// Send the JWt response
-
-	w.Write([]byte(tokenString))
-
+	// Send the JWT response
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(map[string]string{"token": tokenString}); err != nil {
+		http.Error(w, "Could not encode response", http.StatusInternalServerError)
+	}
 }
